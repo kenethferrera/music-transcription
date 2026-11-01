@@ -101,3 +101,4 @@ class GPUManager:
             GPUManager.verify_production_gpu()
             return "cuda"
         return "cuda" if (torch and torch.cuda.is_available()) else "cpu"
+

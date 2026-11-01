@@ -237,3 +237,4 @@ To prevent Out-Of-Memory (OOM) errors and allow long-duration audio processing, 
 ### Issue: `SignatureDoesNotMatch` or R2 403
 - **Cause:** Incorrect R2 Access Key or Secret Key.
 - **Solution:** Re-verify credentials generated from Cloudflare dashboard under R2 Manage API Tokens. Ensure the token has **Admin Read & Write** permissions.
+

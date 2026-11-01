@@ -54,3 +54,4 @@ exec uvicorn backend.app.main:app \
     --port 8000 \
     --workers 1 \
     --log-level info
+
