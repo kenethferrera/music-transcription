@@ -60,6 +60,8 @@ class MusicAnalyzer:
 
         # 1. Tempo & Beats
         bpm = self._estimate_tempo(audio_mono, sr)
+        if not bpm or bpm <= 10.0 or np.isnan(bpm):
+            bpm = 120.0
         tempo_events = [TempoEvent(start_time=0.0, bpm=round(bpm, 1), confidence=0.85)]
 
         # 2. Time Signature
@@ -82,8 +84,10 @@ class MusicAnalyzer:
             import librosa
             tempo, _ = librosa.beat.beat_track(y=audio, sr=sr)
             if isinstance(tempo, np.ndarray):
-                tempo = float(tempo[0])
-            return float(tempo)
+                tempo = float(tempo.item() if tempo.size == 1 else tempo[0])
+            tempo = float(tempo)
+            if tempo > 10.0 and not np.isnan(tempo):
+                return tempo
         except Exception:
             pass
 
