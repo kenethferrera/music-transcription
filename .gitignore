@@ -1,0 +1,29 @@
+# Environment variables and secrets
+.env
+.env.local
+testenv.txt
+
+# Python & Virtual Environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node.js & Frontend builds
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# Caches and checkpoints
+.cache/
+*.safetensors
+*.th
+*.pt
+
+# Scratch & temporary artifacts
+scratch/
+transcription_*/
+music_transcription.db
+*.log

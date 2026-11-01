@@ -1,0 +1,170 @@
+services:
+  # 1. Web Frontend (React + Vite + Nginx)
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 2. FastAPI Backend & Orchestration Service
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-r2}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL}
+      - R2_REGION=${R2_REGION:-auto}
+      - STT_PROVIDER=${STT_PROVIDER:-mock}
+      - STT_API_KEY=${STT_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - storage-data:/app/storage_data
+      - model-checkpoints:/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 3. Demucs Source Separation Worker (GPU)
+  demucs-worker:
+    build:
+      context: ..
+      dockerfile: docker/demucs/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
+      - REDIS_URL=redis://redis:6379/0
+      - TORCH_HOME=/models/torch
+      - DEMUCS_CACHE=/models/demucs
+    volumes:
+      - model-checkpoints:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 4. MuScriptor Large Music Transcription Worker (GPU)
+  muscriptor-worker:
+    build:
+      context: ..
+      dockerfile: docker/muscriptor/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
+      - REDIS_URL=redis://redis:6379/0
+      - HF_TOKEN=${HF_TOKEN}
+      - HF_HOME=/models/huggingface
+      - MUSCRIPTOR_CACHE_DIR=/models/muscriptor
+    volumes:
+      - model-checkpoints:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 5. Arrangement & Musical Analysis Worker (CPU)
+  arrangement-worker:
+    build:
+      context: ..
+      dockerfile: docker/arrangement/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 6. Export Worker (CPU - MIDI, KAR, MusicXML, Verovio PDF)
+  export-worker:
+    build:
+      context: ..
+      dockerfile: docker/export/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 7. PostgreSQL Relational Database (Persistent Storage)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=transcription
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+  # 8. Redis Message Broker & Queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - transcription-net
+
+volumes:
+  model-checkpoints:
+    name: muscriptor_model_checkpoints
+  storage-data:
+    name: muscriptor_storage_data
+  postgres-data:
+    name: muscriptor_postgres_data
+
+networks:
+  transcription-net:
+    driver: bridge

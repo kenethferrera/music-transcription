@@ -1,0 +1,683 @@
+PROJECT IMPLEMENTATION PROMPT AI-POWERED MUSIC TRANSCRIPTION WEB
+APPLICATION Demucs + MuScriptor Large + External STT API + GHCR
+
+ROLE Act as a senior full-stack engineer, AI/ML engineer,
+audio-processing specialist, and DevOps engineer. Implement a complete,
+maintainable web application that converts uploaded songs into
+synchronized multitrack MIDI, karaoke MIDI, full-score PDF, and
+lead-sheet PDF.
+
+Do not stop at architecture documents or mockups. Build and test a
+working application incrementally. Do not fabricate model outputs, APIs,
+capabilities, or progress.
+
+============================================================ 1. PROJECT
+GOAL ============================================================
+
+Users must be able to: - Upload a complete song (MP3, WAV, FLAC, and
+practical FFmpeg-supported formats). - Separate vocals, drums, bass, and
+other audio using Demucs. - Recognize lyrics using a configurable
+external STT API. - Transcribe musical notes using MuScriptor Large. -
+Organize notes into instrument tracks where the model output supports
+this. - Estimate chords, tempo, key, and time signature using non-AI
+signal-processing/music-theory methods. - Edit notes, lyrics, chords,
+and instrument assignments. - Export: 1. Multitrack MIDI (.mid) 2.
+Karaoke MIDI (.kar) 3. Full-score sheet music PDF 4. Lead-sheet PDF
+
+The original audio is an input and intermediate reference. Do not embed
+the original MP3 in MIDI or KAR exports.
+
+STRICT MODEL POLICY: Use only these AI model families: 1. Demucs for
+source separation. 2. MuScriptor Large for musical transcription.
+
+Use an external STT API for lyrics. Do not install Whisper, Whisper.cpp,
+YourMT3/YourMT3+, UVR, RMVPE, Basic Pitch, Omnizart, or any other AI
+separation/transcription model.
+
+Non-AI signal processing, music theory, MIDI processing, lyric alignment
+algorithms, and ordinary software libraries are permitted. If another AI
+model appears technically necessary, explain why and request approval
+before integrating it.
+
+============================================================ 2. REQUIRED
+TECHNOLOGY ============================================================
+
+Frontend: - React - TypeScript - Vite - Tailwind CSS - WaveSurfer.js for
+waveform display - Web Audio API for audio playback and
+synchronization - WebSocket or Server-Sent Events for job progress
+
+Backend: - Python - FastAPI - PyTorch - CUDA for GPU inference - Redis
+for background job queue - Celery or an equivalent background-job
+system - PostgreSQL for persistent project/job metadata when needed -
+FFmpeg for audio conversion/preprocessing - Librosa, SoundFile, NumPy,
+and SciPy for non-AI audio processing
+
+Exports: - A suitable MIDI library such as pretty_midi or mido -
+MusicXML as the notation interchange format - Verovio or LilyPond for
+sheet music rendering
+
+Storage: - Cloudflare R2 is the required persistent object-storage provider
+for production uploads, stems, intermediate artifacts, and exports. - Use
+R2 through its S3-compatible API and a standard S3 SDK (for example,
+Python boto3). - MinIO may be used only as an optional local-development
+substitute; production must be configured for Cloudflare R2. - Do not rely
+on ephemeral container filesystems for permanent files.
+
+Use maintained, compatible dependency versions. Pin versions in
+production images and document compatibility.
+
+============================================================ 3. CLOUDFLARE R2 OBJECT STORAGE
+============================================================
+
+Cloudflare R2 is the required persistent object storage for production.
+Use its S3-compatible API so the backend can use boto3 or another
+maintained S3-compatible SDK.
+
+Configuration:
+- R2_ACCOUNT_ID
+- R2_BUCKET_NAME
+- R2_ACCESS_KEY_ID
+- R2_SECRET_ACCESS_KEY
+- R2_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+- R2_REGION=auto
+
+Read all values from environment variables or the deployment secret
+manager. Never commit credentials, print them in logs, expose them to the
+browser, or bake them into Docker images. Provide a safe .env.example
+containing placeholders only.
+
+Implement an object-storage abstraction (for example, StorageService)
+so application code does not depend directly on boto3 calls. The
+production adapter must target R2. A MinIO adapter may be included for
+local development and automated tests, but it must not silently replace
+R2 in production.
+
+Object organization:
+- Use generated, non-guessable object keys scoped by user and project.
+- Keep original uploads, Demucs stems, temporary/intermediate artifacts,
+  canonical arrangement data, and exports in clearly separated prefixes.
+- Store object keys and metadata in the application database; do not use
+  public URLs as the database's source of truth.
+- Keep buckets private by default.
+- Validate ownership and authorization on every upload, read, and
+ delete request.
+- Record content type, byte size, checksum where practical, creation
+  time, project ID, artifact type, and processing/model version.
+
+Browser transfer:
+- Prefer backend-generated, short-lived presigned PUT URLs for direct
+  browser-to-R2 uploads and presigned GET URLs for authorized downloads.
+- The backend must authenticate the user and authorize the project
+  before issuing any URL.
+- Use short expiry times appropriate to the operation; treat every
+  presigned URL as a bearer credential.
+- Restrict upload object keys to server-generated paths and bind the
+  expected content type where supported.
+- Configure bucket CORS only for the exact application origins and
+  required methods/headers.
+- After upload, verify the object exists and validate size/type before
+  enqueueing expensive GPU processing.
+- Design large-file uploads carefully. Check current R2 multipart-upload
+  support and SDK behavior before implementing resumable/multipart flows;
+  do not assume browser HTML form POST uploads are supported by R2's
+  presigned URL mechanism.
+
+Worker access:
+- GPU and CPU workers should access R2 using server-side credentials
+  with least-privilege bucket-scoped permissions.
+- Workers should download inputs to bounded temporary scratch space,
+  process them, upload outputs, and clean local temporary files reliably.
+- Make transfers retryable and idempotent. Avoid downloading the same
+  large artifact repeatedly when a local cache is safe and available.
+- Do not assume a GPU worker's local disk is durable.
+
+Retention and deletion:
+- Define configurable retention rules for temporary intermediates,
+  failed-job artifacts, original uploads, and user-requested exports.
+- Do not automatically delete user projects or final exports without a
+  clearly documented policy and user-visible behavior.
+- Support project deletion by deleting associated R2 objects and
+  database records safely, with retry/reconciliation for partial failure.
+- Use R2 lifecycle rules only for prefixes whose retention behavior is
+  explicitly understood; avoid broad rules that could delete user data.
+
+Testing and operations:
+- Add an R2 connectivity/permissions health check that does not expose
+  secrets.
+- Test upload, download, head/stat, delete, presigned URL generation,
+  CORS, large-file behavior, retries, and authorization boundaries.
+- Document bucket creation, API-token creation, least-privilege
+  permissions, CORS configuration, lifecycle setup, and deployment
+  secrets.
+- Keep storage provider configuration separate for local, staging, and
+  production environments.
+
+Official documentation to verify during implementation:
+- https://developers.cloudflare.com/r2/get-started/s3/
+- https://developers.cloudflare.com/r2/api/s3/presigned-urls/
+- https://developers.cloudflare.com/r2/buckets/object-lifecycles/
+
+============================================================ 4. DEMUCS
+SOURCE SEPARATION
+============================================================
+
+Official repository: https://github.com/facebookresearch/demucs
+
+Use an appropriate official pretrained Demucs checkpoint. Standard
+four-stem output should be: - Vocals - Drums - Bass - Other
+
+Requirements: - Preserve the original song timeline and duration as
+closely as possible. - Save separated stems as WAV. - Maintain
+consistent sample-rate and channel handling. - Handle long songs without
+exhausting GPU memory. - Use chunking only where supported and
+reconstruct chunk boundaries without timing gaps. - Store stems in
+persistent object storage. - Provide stem previews in the web
+interface. - Record processing settings, model/checkpoint version, and
+errors. - Allow failed separation jobs to be retried.
+
+IMPORTANT LIMITATION: Standard four-stem Demucs does not independently
+separate piano, guitar, strings, and every other instrument. Do not
+label the four stems as individual instruments or claim that they
+provide isolated piano and guitar tracks.
+
+============================================================ 4.
+MUSCRIPTOR LARGE TRANSCRIPTION
+============================================================
+
+Model: https://huggingface.co/MuScriptor/muscriptor-large
+
+Use MuScriptor Large as the only automatic musical-note transcription
+model.
+
+Before implementing inference: 1. Inspect the official model page and
+source repository. 2. Locate and inspect the actual checkpoint and
+documented inference code. 3. Verify supported audio formats, sample
+rates, channels, and duration limits. 4. Verify what note, timing,
+instrument, confidence, and velocity information is actually returned.
+5. Verify GPU/VRAM requirements and dependencies. 6. Verify the model
+and checkpoint license and redistribution restrictions. 7. Record any
+missing capabilities or implementation risks.
+
+Do not invent an inference API or assume undocumented functionality.
+Implement the actual documented inference path.
+
+Where supported, extract: - Instrument identity/category - MIDI pitch -
+Note onset - Note offset/duration - Velocity - Confidence - Track
+association
+
+Normalize model output into the application’s shared music
+representation. Do not fabricate unavailable values. If velocity is
+missing, use a documented configurable default or a clearly identified
+non-AI estimation method. If instrument identity is uncertain, preserve
+uncertainty and allow manual reassignment.
+
+Transcription strategy: 1. Run Demucs on the original song. 2. Run
+MuScriptor Large on the original mixed audio. 3. Evaluate MuScriptor on
+relevant separated stems where supported. 4. Benchmark original-mix and
+stem-based transcription. 5. Compare and reconcile results. 6. Remove
+duplicate/conflicting note events carefully. 7. Assign notes to
+instrument tracks only when supported by evidence. 8. Preserve the
+original song timeline.
+
+Do not assume that running MuScriptor on every stem improves accuracy.
+Benchmark first and avoid unnecessary GPU work. Do not shift stems
+independently.
+
+IMPORTANT LIMITATION: Demucs four-stem output does not isolate piano and
+guitar separately. MuScriptor’s actual instrument-identification
+abilities must be verified. Do not promise perfect
+instrument-by-instrument transcription. Mark uncertain assignments and
+allow manual correction.
+
+============================================================ 6. EXTERNAL
+STT API FOR LYRICS
+============================================================
+
+Use an external speech-to-text API for lyric recognition. Do not install
+a local STT model.
+
+Implement a provider adapter in the backend so the STT provider can be
+changed without rewriting the pipeline.
+
+Default input: Demucs vocal stem. A configurable comparison against the
+original mix may be added if testing supports it.
+
+Requirements: - API key supplied through environment
+variables/secrets. - Request timeout and bounded retry handling. -
+Audio-size and provider duration-limit handling. - Response validation
+and provider-specific adapters. - Normalize results into a common lyric
+format. - Preserve word/segment timestamps when returned. - Clearly
+represent missing or coarse timestamps. - Allow manual lyric correction.
+
+Do not assume every STT provider returns word-level timestamps. STT
+recognizes words; it does not identify musical pitches.
+
+LYRIC-TO-NOTE ALIGNMENT: Implement a separate non-AI alignment component
+that associates recognized words/syllables with vocal note events.
+Consider: - Word timestamps - Note onset and offset - Syllable
+segmentation - Sustained vowels - Melisma (one syllable across multiple
+notes) - Multiple syllables within a phrase - Gaps and repeated words -
+Vocal ornaments
+
+Do not assume one word equals one note. Do not fabricate precise
+syllable timing when the STT response lacks it. Preserve uncertainty and
+provide manual editing.
+
+============================================================ 7. VOCAL
+MELODY ============================================================
+
+Use MuScriptor Large’s actual supported transcription output for vocal
+melody notes where possible.
+
+Do not add RMVPE or another AI pitch model.
+
+Requirements: - Identify vocal-related notes only where the model
+supports it. - Preserve pitch and timing. - Associate lyrics with notes
+using the alignment component. - Allow manual note editing. - Mark
+uncertain or unavailable melody data clearly.
+
+If MuScriptor cannot reliably distinguish vocal melody from
+accompaniment, do not fabricate a vocal melody. Investigate non-AI
+signal-processing options or expose the limitation for manual
+correction.
+
+============================================================ 8. MUSICAL
+ANALYSIS ============================================================
+
+Implement non-AI algorithms for: - Chord estimation - Key estimation -
+Tempo/BPM estimation - Time-signature estimation where feasible - Beat
+and bar positions - Tempo changes where detectable
+
+Use transcription and audio features as evidence. Store
+confidence/uncertainty. Allow manual correction. Do not assume all songs
+have constant tempo or meter, and do not present uncertain analysis as
+ground truth.
+
+============================================================ 9. SHARED
+INTERNAL MUSIC REPRESENTATION
+============================================================
+
+Create one canonical internal arrangement representation as the source
+of truth for every export.
+
+It should include: - Project metadata and original duration - Sample
+rate and timing reference - Tempo map - Time-signature map - Key
+information - Chord events - Instrument tracks - MIDI note events -
+Vocal notes - Lyrics and timestamps - Instrument assignments -
+Confidence/uncertainty - Source stem references - Manual edit history
+where practical
+
+Each note event should support: - Track ID - Instrument name/MIDI
+program where known - Pitch - Start time - End time/duration - Velocity
+when available - Confidence when available
+
+Use a consistent high-resolution timing representation. Keep every track
+aligned to the original audio timeline. Generate MIDI, KAR, and MusicXML
+from this same representation; do not create separate inconsistent
+pipelines.
+
+============================================================ 10. WEB
+APPLICATION UI
+============================================================
+
+Build a polished, responsive interface.
+
+DASHBOARD: - Create project/upload song - Recent projects - Processing
+status - Export history
+
+UPLOAD: - MP3, WAV, FLAC, and practical FFmpeg-supported formats -
+Filename, duration, size - Upload progress - Validation and error
+messages - Audio preview
+
+PROCESSING PAGE: Show actual stages: 1. Upload complete 2. Audio
+preprocessing 3. Demucs separation 4. MuScriptor transcription 5.
+External lyrics recognition 6. Lyric-to-note alignment 7. Chord and
+music analysis 8. Arrangement generation 9. Export preparation
+
+Show actual progress where measurable. Do not invent percentage
+progress.
+
+ARRANGEMENT EDITOR: - Original waveform and audio playback - Separated
+stem previews - Synchronized playback - Piano-roll note editor -
+Instrument track list - Lyrics editor - Chord display - Tempo, key, and
+time-signature controls - Note insertion/deletion - Pitch, onset, and
+duration editing - Instrument reassignment - Lyric text and timing
+correction - Zoom and horizontal scrolling
+
+Keep waveform, piano roll, lyrics, chords, and playback synchronized.
+
+EXPORT PAGE: Provide independent downloads for: - Multitrack MIDI
+(.mid) - Karaoke MIDI (.kar) - Full-score PDF - Lead-sheet PDF
+
+Show export status and allow sheet music preview.
+
+============================================================ 10. MIDI
+EXPORT ============================================================
+
+Generate a standards-compliant Standard MIDI File Type 1.
+
+Create separate tracks where data is available: - Vocals - Piano -
+Guitar - Bass - Drums - Other identified instruments - Optional
+chord/marker track
+
+Include where available: - Note-on and note-off events - Velocity -
+Program changes - Tempo events - Time-signature events - Key-signature
+metadata where supported - Track names - Appropriate percussion channel
+assignments
+
+Do not invent instrument identities or velocities. Use documented
+defaults only when necessary. Do not embed original audio.
+
+Reopen and validate generated MIDI files in tests.
+
+============================================================ 11. KARAOKE
+MIDI EXPORT (.KAR)
+============================================================
+
+Generate a karaoke MIDI file using appropriate MIDI lyric meta-events.
+
+Requirements: - Synchronized lyric text events - Vocal melody notes -
+Word/syllable timing to the accuracy supported by alignment - Tempo and
+timing metadata - Other arrangement tracks where appropriate -
+Consistent MIDI timing
+
+Do not place all lyrics at the beginning. Do not embed original audio.
+Test compatibility with common karaoke MIDI players and validate the
+lyric event sequence.
+
+============================================================ 12. SHEET
+MUSIC PDF EXPORT
+============================================================
+
+Use MusicXML as the shared notation format. Generate MusicXML from the
+canonical internal arrangement. Render using Verovio or LilyPond.
+Inspect actual rendered PDFs.
+
+FULL SCORE: Include available, transcribed parts: - Vocal melody with
+lyrics - Piano grand staff where appropriate - Guitar - Bass -
+Drum/percussion notation - Other identified instruments
+
+Include appropriate clefs, key/time signatures, tempo, bar lines, note
+values, rests, ties/dots where justified, chord symbols where
+appropriate, lyrics, instrument labels, page numbers, and readable
+spacing.
+
+Do not create empty staves for unavailable parts. Do not invent notes to
+fill measures. Handle uncertain data honestly.
+
+LEAD SHEET: Include: - Main vocal melody - Lyrics aligned below notes -
+Chord symbols - Key signature - Time signature - Tempo - Bar lines -
+Readable, compact layout
+
+Validate MusicXML and inspect PDF output for notation readability.
+
+============================================================ 13. GHCR
+CONTAINER ARCHITECTURE
+============================================================
+
+Use GitHub Container Registry (GHCR) for project-maintained Docker
+images.
+
+Registry namespace: ghcr.io//
+
+Create separate service images:
+
+1.  ghcr.io//music-transcription-api
+    -   FastAPI
+    -   API routes and project management
+    -   Job orchestration
+    -   External STT API integration
+    -   Storage integration
+    -   Processing status
+2.  ghcr.io//music-audio-separation
+    -   Python
+    -   Compatible PyTorch/CUDA
+    -   Demucs
+    -   FFmpeg and audio dependencies
+3.  ghcr.io//music-music-transcription
+    -   Python
+    -   Compatible PyTorch/CUDA
+    -   MuScriptor inference dependencies
+    -   Required audio dependencies
+4.  ghcr.io//music-arrangement
+    -   Canonical music representation
+    -   Note normalization and reconciliation
+    -   Duplicate-note handling
+    -   Instrument assignment
+    -   Lyric alignment
+    -   Chord, tempo, and meter analysis
+5.  ghcr.io//music-export
+    -   MIDI and KAR generation
+    -   MusicXML generation
+    -   Verovio or LilyPond
+    -   PDF rendering and validation
+
+Use CPU-only images for CPU services where practical. Do not install
+unnecessary GPU dependencies in CPU containers.
+
+CONTAINER REQUIREMENTS: - Use CUDA-compatible base images for GPU
+services. - Match PyTorch/CUDA builds to target GPU drivers. - Use
+non-root users where practical. - Pin dependencies. - Add health
+checks. - Optimize image size. - Use multi-stage builds where useful. -
+Document NVIDIA driver and Container Toolkit requirements. - Test actual
+GPU visibility and inference inside containers.
+
+Use Docker GPU access (for example, –gpus all) where appropriate.
+
+MODEL CHECKPOINTS: Do not unnecessarily bundle large checkpoints into
+every image. Keep model weights in persistent model storage/cache and
+mount them into the appropriate containers.
+
+-   Pin checkpoint versions.
+-   Verify checksums.
+-   Avoid downloading weights for every job.
+-   Handle missing/corrupt weights clearly.
+-   Record model/checkpoint version for every job.
+-   Respect model and checkpoint licenses.
+-   Never publish restricted weights in public GHCR images.
+
+GHCR PUBLISHING: Use GitHub Actions to: - Build affected images. - Run
+tests. - Authenticate to GHCR using least-privilege workflow
+permissions. - Publish versioned and commit-based tags. - Record image
+digests. - Support architecture-specific builds if required.
+
+Use immutable image digests in production. Do not rely only on latest.
+Never put secrets in Docker images. Document private-package
+authentication and image pulling.
+
+============================================================ 14. DOCKER
+COMPOSE AND DEPLOYMENT
+============================================================
+
+Provide Docker Compose for local development and document production
+deployment.
+
+Include: - Frontend - FastAPI backend - Redis - PostgreSQL if persistent
+relational storage is used - Demucs GPU worker - MuScriptor GPU worker -
+CPU arrangement worker - CPU export worker - Optional local object
+storage
+
+Configure: - Persistent volumes - Environment variables - Secrets -
+Service networking - Health checks - Restart policies - Dependencies -
+GPU access for GPU workers
+
+Permanent uploads and exports must live in persistent object storage,
+not ephemeral containers.
+
+Provide .env.example with variable names and safe example values only.
+Never hardcode STT keys, database passwords, storage credentials, or
+authentication secrets.
+
+============================================================ 15. JOB
+PROCESSING AND RELIABILITY
+============================================================
+
+All long-running processing must be asynchronous.
+
+Implement: - Job creation and status tracking - Stage-level progress -
+Bounded retries for recoverable failures - Idempotency/deduplication for
+repeated requests - Intermediate result persistence - Worker restart
+recovery where practical - GPU out-of-memory handling - Concurrency
+limits based on available VRAM - Safe temporary-file cleanup - Clear
+user-facing errors - Retry/resume of failed stages where practical
+
+Do not run long GPU inference inside an HTTP request. Use WebSocket or
+Server-Sent Events for status updates.
+
+============================================================ 16. GPU AND
+PERFORMANCE MANAGEMENT
+============================================================
+
+Implement: - GPU availability checks - VRAM monitoring - Model
+loading/caching - Configurable inference concurrency - Memory-aware
+processing - Processing time measurements - Worker health checks -
+Structured error logging
+
+Do not assume Demucs and MuScriptor can run concurrently on the same
+GPU. Benchmark their memory requirements and configure safe scheduling.
+Prefer sequential execution if VRAM is insufficient.
+
+Record audio duration, processing time, peak VRAM, model version,
+checkpoint version, and processing settings.
+
+============================================================ 17. TESTING
+AND VALIDATION
+============================================================
+
+UNIT TESTS: - Audio preprocessing - Demucs output handling - MuScriptor
+output parsing - Note-event normalization - Duplicate-note
+reconciliation - STT response normalization - Lyric alignment -
+Chord/tempo analysis - MIDI generation - KAR lyric events - MusicXML
+generation - PDF export
+
+INTEGRATION TESTS: - Upload to Demucs - Demucs to MuScriptor - External
+STT integration using a mock provider - Transcription to arrangement -
+Arrangement to MIDI - Arrangement to KAR - Arrangement to MusicXML/PDF
+
+BENCHMARK AUDIO: - Solo piano - Solo guitar - Bass-heavy music -
+Drums/percussion - Vocal pop - Rock - Dense orchestral music - Backing
+vocals - Tempo changes
+
+Measure: - Processing time - Peak VRAM - Note accuracy - Onset/offset
+accuracy - Instrument assignment quality - Lyric recognition quality -
+Lyric alignment quality - Export validity
+
+Use suitable datasets only when their licenses permit. Do not claim
+perfect transcription. Document limitations and benchmark methodology.
+
+============================================================ 18.
+SUGGESTED PROJECT STRUCTURE
+============================================================
+
+music-transcription-app/ frontend/ src/ components/ pages/ editor/
+audio/ api/ types/ Dockerfile
+
+backend/ app/ api/ services/ jobs/ storage/ stt/ models/ schemas/
+Dockerfile
+
+workers/ audio_separation/ music_transcription/ arrangement/ export/
+
+shared/ music_schema/ processing_contracts/
+
+docker/ demucs/ muscriptor/ arrangement/ export/
+
+deployment/ docker-compose.yml github-actions/ documentation/
+
+tests/ .env.example README.md LICENSE
+
+You may improve the structure when there is a clear technical reason.
+Keep service boundaries explicit and avoid unnecessary coupling.
+
+============================================================ 19.
+IMPLEMENTATION PHASES
+============================================================
+
+PHASE 1 — RESEARCH AND VERIFICATION - Inspect Demucs repository and
+checkpoint. - Inspect MuScriptor Large model page, repository,
+checkpoint, and inference instructions. - Verify model APIs, audio
+requirements, output schema, GPU/VRAM needs, and licenses. - Verify STT
+provider interface and timestamp support. - Identify model limitations
+and technical risks. - Produce a concise technical report and
+implementation plan.
+
+Do not invent model functionality. Do not begin large-scale inference
+implementation until the actual model interface is verified.
+
+PHASE 2 — INFRASTRUCTURE - Create repository structure. - Build
+Dockerfiles. - Configure GHCR publishing workflows. - Configure Docker
+Compose. - Build FastAPI skeleton. - Configure Redis queue and
+storage. - Implement GPU worker health checks. - Verify GPU visibility
+in containers.
+
+PHASE 3 — AUDIO PIPELINE - Implement upload and validation. - Implement
+preprocessing. - Integrate real Demucs inference. - Store WAV stems. -
+Add stem previews. - Implement job status and error handling. - Test
+with real audio.
+
+PHASE 4 — MUSIC TRANSCRIPTION - Integrate real MuScriptor inference. -
+Parse documented model outputs. - Normalize note events. - Benchmark
+original mix versus supported stem inputs. - Reconcile
+duplicate/conflicting results. - Assign instruments only where
+supported. - Test on representative songs.
+
+PHASE 5 — LYRICS AND MUSICAL ANALYSIS - Implement external STT provider
+adapter. - Transcribe the vocal stem. - Normalize timestamps and text. -
+Implement lyric-to-note alignment. - Implement non-AI chord, key, tempo,
+and meter analysis. - Support manual corrections.
+
+PHASE 6 — ARRANGEMENT EDITOR - Build waveform and playback. - Build
+piano-roll editor. - Build instrument tracks. - Build lyrics and chord
+editing. - Synchronize all views to the original timeline.
+
+PHASE 7 — EXPORTS - Generate multitrack MIDI. - Generate karaoke MIDI. -
+Generate MusicXML. - Generate full-score PDF. - Generate lead-sheet
+PDF. - Validate outputs with automated tests and manual inspection.
+
+PHASE 8 — INTEGRATION AND DEPLOYMENT - Test complete end-to-end
+processing. - Optimize GPU usage. - Test failures and retries. - Publish
+versioned GHCR images. - Prepare production deployment documentation. -
+Complete README and troubleshooting guide.
+
+============================================================ 20. FINAL
+DELIVERABLES
+============================================================
+
+Deliver: 1. Working React/TypeScript frontend. 2. Working FastAPI
+backend. 3. Real Demucs separation service. 4. Real MuScriptor Large
+transcription service. 5. External STT API integration. 6. Arrangement
+and export services. 7. GHCR Dockerfiles and publishing workflows. 8.
+Docker Compose configuration. 9. .env.example. 10. Automated tests. 11.
+Deployment instructions. 12. Model setup/checkpoint documentation. 13.
+Benchmark results and known limitations.
+
+FINAL QUALITY RULES: - Use only Demucs and MuScriptor Large as AI
+models. - Use an external STT API for lyrics. - Do not install Whisper
+or any additional AI model. - Do not fabricate model outputs, APIs, or
+capabilities. - Do not fake processing progress. - Do not silently
+substitute another model. - Do not hardcode credentials. - Do not store
+permanent files in ephemeral containers. - Do not claim standard Demucs
+four-stem output separates piano and guitar individually. - Do not
+promise perfect automatic transcription. - Make uncertain results
+editable. - Keep every track synchronized to the original audio
+timeline. - Generate all exports from the same canonical arrangement
+representation.
+
+============================================================ 21. FIRST
+ACTION REQUIRED FROM CLAUDE
+============================================================
+
+Start with Phase 1.
+
+Inspect the official Demucs and MuScriptor Large sources and verify the
+real inference requirements, checkpoints, output formats, GPU
+requirements, and licenses.
+
+Then report: - Verified model interfaces - Exact dependencies and
+version constraints - Checkpoint download and storage strategy -
+Expected GPU/VRAM requirements - Supported transcription capabilities -
+Known limitations - Proposed service/container architecture -
+Implementation risks
+
+After presenting the findings, proceed with implementation in phases. Do
+not stop at planning: build, run, test, and document the working
+application.
