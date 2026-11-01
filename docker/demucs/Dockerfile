@@ -29,7 +29,7 @@ RUN pip3 install --no-cache-dir \
 RUN pip3 install --no-cache-dir \
     demucs==4.0.1 \
     soundfile==0.12.1 \
-    numpy>=1.26.0,<2.0.0 \
+    "numpy>=1.26.0,<2.0.0" \
     scipy==1.13.1 \
     boto3==1.35.36 \
     redis==5.2.0

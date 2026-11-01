@@ -14,7 +14,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-    numpy>=1.26.0,<2.0.0 \
+    "numpy>=1.26.0,<2.0.0" \
     scipy==1.13.1 \
     soundfile==0.12.1 \
     librosa==0.10.2.post1 \

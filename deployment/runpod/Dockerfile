@@ -57,7 +57,7 @@ RUN pip3 install --no-cache-dir \
 RUN pip3 install --no-cache-dir \
     demucs==4.0.1 \
     soundfile==0.12.1 \
-    numpy>=1.26.0,<2.0.0 \
+    "numpy>=1.26.0,<2.0.0" \
     scipy==1.13.1 \
     librosa==0.10.2.post1 \
     mido==1.3.2
