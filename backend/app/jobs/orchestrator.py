@@ -25,6 +25,7 @@ try:
 except ImportError:
     torch = None
 
+from backend.app.services.gpu_manager import GPUManager
 from backend.app.storage import get_storage_service
 from backend.app.stt import get_stt_provider
 from shared.music_schema.arrangement import Arrangement
@@ -101,6 +102,11 @@ class ProjectJobOrchestrator:
     def run(self) -> Arrangement:
         """Execute all stages synchronously or inside a background worker."""
         try:
+            # Enforce production GPU requirements if in production mode
+            GPUManager.verify_production_gpu()
+            gpu_status = GPUManager.get_gpu_status()
+            logger.info(f"[{self.project_id}] Target Execution Platform: {gpu_status['platform']} | GPU: {gpu_status['device_name']}")
+
             # 1. UPLOAD_COMPLETE
             self._emit_progress(
                 JobStage.UPLOAD_COMPLETE,
@@ -151,9 +157,8 @@ class ProjectJobOrchestrator:
                 self.storage.upload_file(stem_file, stem_key, content_type="audio/wav")
                 stem_refs[stem_name] = stem_key
 
-            # Free GPU cache before running transcription
-            if torch and torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Release VRAM between Demucs and MuScriptor Large
+            GPUManager.release_vram()
 
             # 4. MUSCRIPTOR_TRANSCRIPTION
             self._emit_progress(
@@ -176,8 +181,8 @@ class ProjectJobOrchestrator:
                     notes = muscriptor.transcribe_audio(stem_paths[stem_name], source_stem=stem_name)
                     stem_notes[stem_name] = notes
 
-            if torch and torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Release VRAM after transcription
+            GPUManager.release_vram()
 
             # 5. EXTERNAL_LYRICS_RECOGNITION
             self._emit_progress(

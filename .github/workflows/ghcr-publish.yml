@@ -6,6 +6,7 @@ on:
     tags: ["v*.*.*"]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +14,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_BASE: ghcr.io/${{ github.repository }}
 
 jobs:
   test:
@@ -39,15 +39,18 @@ jobs:
         env:
           STORAGE_PROVIDER: local
           STT_PROVIDER: mock
+          ENVIRONMENT: test
+          PYTHONPATH: .
         run: |
           pytest -v tests/
 
   build-and-publish:
-    name: Build & Publish GHCR Images
+    name: Build & Publish Production Images
     needs: test
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service:
           - name: music-transcription-api
@@ -62,10 +65,17 @@ jobs:
             dockerfile: docker/export/Dockerfile
           - name: music-frontend
             dockerfile: docker/frontend/Dockerfile
+          - name: music-transcription-runpod
+            dockerfile: deployment/runpod/Dockerfile
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Prepare lowercase image repository name
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_BASE=${{ env.REGISTRY }}/${REPO_LOWER}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -98,4 +108,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-

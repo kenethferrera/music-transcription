@@ -1,13 +1,11 @@
 """
 Health Check & System Diagnostics Router
+Exposes hardware diagnostics, active inference platform, storage connectivity, and environment.
 """
 import os
 from fastapi import APIRouter
-try:
-    import torch
-except ImportError:
-    torch = None
 
+from backend.app.services.gpu_manager import GPUManager
 from backend.app.storage import get_storage_service
 
 router = APIRouter(prefix="/health", tags=["health"])
@@ -15,36 +13,50 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("")
 def health_check():
-    # 1. GPU / CUDA Diagnostics
-    cuda_available = bool(torch and torch.cuda.is_available())
-    gpu_info = {
-        "available": cuda_available,
-        "device_count": torch.cuda.device_count() if cuda_available else 0,
-    }
-    if cuda_available:
-        gpu_info["device_name"] = torch.cuda.get_device_name(0)
-        gpu_info["vram_allocated_mb"] = round(torch.cuda.memory_allocated(0) / (1024**2), 1)
-        gpu_info["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / (1024**2), 1)
+    # 1. Environment & Runtime Platform
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+    is_runpod = bool(os.getenv("RUNPOD_POD_ID") or os.getenv("RUNPOD_DC_ID"))
+    platform = "RunPod GPU Pod" if is_runpod else ("Local Development" if environment == "development" else "Production Linux")
 
-    # 2. Storage Health
+    # 2. GPU / CUDA Diagnostics
+    gpu_status = GPUManager.get_gpu_status()
+
+    # 3. Storage Health
     storage = get_storage_service()
     storage_health = storage.check_health()
 
-    # 3. Model & STT Configuration
-    stt_provider = os.getenv("STT_PROVIDER", "mock")
+    # 4. Model & STT Configuration
+    stt_provider = os.getenv("STT_PROVIDER", "openrouter")
     demucs_model = os.getenv("DEMUCS_MODEL", "htdemucs")
     muscriptor_model = os.getenv("MUSCRIPTOR_MODEL", "large")
 
+    is_healthy = True
+    status_msg = "healthy"
+    if environment == "production":
+        if not gpu_status.get("available"):
+            is_healthy = False
+            status_msg = "degraded_missing_gpu"
+        elif storage_health.get("status") != "healthy":
+            is_healthy = False
+            status_msg = "degraded_storage_unavailable"
+
     return {
-        "status": "healthy",
-        "gpu": gpu_info,
+        "status": status_msg,
+        "environment": environment,
+        "runtime_platform": platform,
+        "runpod_pod_id": os.getenv("RUNPOD_POD_ID", None),
+        "gpu": gpu_status,
         "storage": storage_health,
         "models": {
             "demucs": demucs_model,
             "muscriptor": f"MuScriptor/{muscriptor_model}",
+            "checkpoint_cached": os.path.exists(
+                os.path.join(os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub")
+            ),
         },
         "stt": {
             "provider": stt_provider,
+            "model": os.getenv("STT_MODEL", "openai/whisper-large-v3-turbo"),
         },
     }
 

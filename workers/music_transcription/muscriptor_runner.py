@@ -97,6 +97,10 @@ class MuScriptorRunner:
                 try:
                     self._model = TranscriptionModel.load_model(self.model_name, device=self.device, dtype=dtype)
                 except (torch.cuda.OutOfMemoryError if torch else Exception) as oom_err:
+                    is_prod = os.getenv("ENVIRONMENT", "development").lower() == "production"
+                    if is_prod:
+                        logger.error(f"Production GPU out of memory on {self.device}: {oom_err}")
+                        raise RuntimeError(f"RunPod GPU OOM during MuScriptor Large loading on {self.device}: {oom_err}")
                     logger.warning(f"CUDA memory limit reached on {self.device} ({oom_err}). Retrying MuScriptor on CPU...")
                     if torch and torch.cuda.is_available():
                         torch.cuda.empty_cache()

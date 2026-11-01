@@ -27,3 +27,7 @@ scratch/
 transcription_*/
 music_transcription.db
 *.log
+
+
+storage_data/
+*.db

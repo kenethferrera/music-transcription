@@ -1,6 +1,7 @@
 services:
   # 1. Web Frontend (React + Vite + Nginx)
   frontend:
+    image: ${IMAGE_BASE:-ghcr.io/kenethferrera/music-transcription}/music-frontend:${TAG:-latest}
     build:
       context: ..
       dockerfile: docker/frontend/Dockerfile
@@ -15,12 +16,14 @@ services:
 
   # 2. FastAPI Backend & Orchestration Service
   api:
+    image: ${IMAGE_BASE:-ghcr.io/kenethferrera/music-transcription}/music-transcription-api:${TAG:-latest}
     build:
       context: ..
       dockerfile: docker/api/Dockerfile
     ports:
       - "8000:8000"
     environment:
+      - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
       - STORAGE_PROVIDER=${STORAGE_PROVIDER:-r2}
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
@@ -29,8 +32,9 @@ services:
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
       - R2_ENDPOINT_URL=${R2_ENDPOINT_URL}
       - R2_REGION=${R2_REGION:-auto}
-      - STT_PROVIDER=${STT_PROVIDER:-mock}
-      - STT_API_KEY=${STT_API_KEY}
+      - STT_PROVIDER=${STT_PROVIDER:-openrouter}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - STT_MODEL=${STT_MODEL:-openai/whisper-large-v3-turbo}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REDIS_URL=redis://redis:6379/0
@@ -54,10 +58,12 @@ services:
 
   # 3. Demucs Source Separation Worker (GPU)
   demucs-worker:
+    image: ${IMAGE_BASE:-ghcr.io/kenethferrera/music-transcription}/music-audio-separation:${TAG:-latest}
     build:
       context: ..
       dockerfile: docker/demucs/Dockerfile
     environment:
+      - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
       - REDIS_URL=redis://redis:6379/0
       - TORCH_HOME=/models/torch
@@ -77,10 +83,12 @@ services:
 
   # 4. MuScriptor Large Music Transcription Worker (GPU)
   muscriptor-worker:
+    image: ${IMAGE_BASE:-ghcr.io/kenethferrera/music-transcription}/music-music-transcription:${TAG:-latest}
     build:
       context: ..
       dockerfile: docker/muscriptor/Dockerfile
     environment:
+      - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
       - REDIS_URL=redis://redis:6379/0
       - HF_TOKEN=${HF_TOKEN}
@@ -101,10 +109,12 @@ services:
 
   # 5. Arrangement & Musical Analysis Worker (CPU)
   arrangement-worker:
+    image: ${IMAGE_BASE:-ghcr.io/kenethferrera/music-transcription}/music-arrangement:${TAG:-latest}
     build:
       context: ..
       dockerfile: docker/arrangement/Dockerfile
     environment:
+      - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
       - REDIS_URL=redis://redis:6379/0
     restart: unless-stopped
@@ -113,10 +123,12 @@ services:
 
   # 6. Export Worker (CPU - MIDI, KAR, MusicXML, Verovio PDF)
   export-worker:
+    image: ${IMAGE_BASE:-ghcr.io/kenethferrera/music-transcription}/music-export:${TAG:-latest}
     build:
       context: ..
       dockerfile: docker/export/Dockerfile
     environment:
+      - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/transcription
       - REDIS_URL=redis://redis:6379/0
     restart: unless-stopped
