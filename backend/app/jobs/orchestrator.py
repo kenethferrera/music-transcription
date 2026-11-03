@@ -194,7 +194,12 @@ class ProjectJobOrchestrator:
                 "Recognizing lyrics and timestamps from vocal stem via external STT API...",
             )
             vocal_stem_path = stem_paths.get("vocals", local_input)
-            stt_result = self.stt_provider.transcribe(vocal_stem_path)
+            try:
+                stt_result = self.stt_provider.transcribe(vocal_stem_path)
+            except Exception as e:
+                logger.error(f"External STT transcription error: {e}. Falling back to instrumental lyrics.")
+                from backend.app.stt.base import STTResult
+                stt_result = STTResult(text="", language="en", duration=0.0, words=[], segments=[])
 
             # 6. LYRIC_TO_NOTE_ALIGNMENT
             self._emit_progress(

@@ -1,17 +1,74 @@
 """
-OpenAI & Groq External Speech-to-Text Provider Adapter.
+OpenAI, Groq & OpenRouter External Speech-to-Text Provider Adapter.
 Uses standard /v1/audio/transcriptions endpoint with verbose_json and word timestamps.
+Automatically compresses vocal stems to 16kHz mono MP3 to prevent HTTP 413 Payload Too Large.
 """
-import base64
 import logging
 import os
+import subprocess
+import tempfile
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import httpx
 
 from backend.app.stt.base import STTProvider, STTResult, STTSegment, STTWord
 
 logger = logging.getLogger(__name__)
+
+
+def _prepare_stt_audio(audio_file_path: str) -> Tuple[str, str, bool]:
+    """
+    Downsamples audio to 16kHz mono 64kbps MP3 (or 16-bit PCM WAV) for external STT APIs.
+    Reduces payload size by ~95% (e.g. from 110MB to ~2.5MB for a 5-min vocal stem),
+    preventing HTTP 413 (Payload Too Large) errors from cloud Whisper providers.
+    
+    Returns:
+        (prepared_path, mime_type, is_temp)
+    """
+    if not os.path.exists(audio_file_path):
+        return audio_file_path, "audio/wav", False
+
+    # Try ffmpeg compression to 16kHz mono MP3
+    try:
+        tmp_mp3 = tempfile.NamedTemporaryFile(suffix="_stt.mp3", delete=False)
+        tmp_mp3.close()
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", audio_file_path,
+            "-ar", "16000",
+            "-ac", "1",
+            "-b:a", "64k",
+            tmp_mp3.name,
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0 and os.path.getsize(tmp_mp3.name) > 0:
+            logger.info(
+                f"Compressed vocal stem for STT: {os.path.getsize(audio_file_path):,} bytes -> "
+                f"{os.path.getsize(tmp_mp3.name):,} bytes"
+            )
+            return tmp_mp3.name, "audio/mpeg", True
+        else:
+            if os.path.exists(tmp_mp3.name):
+                os.unlink(tmp_mp3.name)
+    except Exception as e:
+        logger.debug(f"ffmpeg compression for STT skipped: {e}")
+
+    # Fallback to soundfile if available
+    try:
+        import soundfile as sf
+        import numpy as np
+        data, sr = sf.read(audio_file_path)
+        if data.ndim > 1:
+            data = np.mean(data, axis=1)
+        tmp_wav = tempfile.NamedTemporaryFile(suffix="_stt.wav", delete=False)
+        tmp_wav.close()
+        sf.write(tmp_wav.name, data, sr, subtype="PCM_16")
+        return tmp_wav.name, "audio/wav", True
+    except Exception as e:
+        logger.debug(f"soundfile preparation skipped: {e}")
+
+    return audio_file_path, "audio/wav", False
 
 
 class OpenAICompatibleSTTProvider(STTProvider):
@@ -63,28 +120,13 @@ class OpenAICompatibleSTTProvider(STTProvider):
             "Authorization": f"Bearer {self.api_key}",
         }
 
+        # Compress/prepare audio to avoid HTTP 413 Payload Too Large
+        stt_path, mime_type, is_temp = _prepare_stt_audio(audio_file_path)
+
         last_error = None
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                if "openrouter" in self.base_url:
-                    # OpenRouter expects base64 JSON payload
-                    with open(audio_file_path, "rb") as f:
-                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                    payload = {
-                        "model": self.model,
-                        "input_audio": {"data": b64_audio, "format": "wav"},
-                        "response_format": "verbose_json",
-                        "timestamp_granularities": ["word", "segment"],
-                    }
-                    if language:
-                        payload["language"] = language
-                    with httpx.Client(timeout=self.timeout_seconds) as client:
-                        response = client.post(url, headers=headers, json=payload)
-                        response.raise_for_status()
-                        res_json = response.json()
-                        return self._parse_response(res_json)
-                else:
-                    # Standard multipart/form-data for OpenAI & Groq
+        try:
+            for attempt in range(1, self.max_retries + 1):
+                try:
                     data = {
                         "model": self.model,
                         "response_format": "verbose_json",
@@ -93,20 +135,26 @@ class OpenAICompatibleSTTProvider(STTProvider):
                     if language:
                         data["language"] = language
 
-                    with open(audio_file_path, "rb") as f:
-                        files = {"file": (os.path.basename(audio_file_path), f, "audio/wav")}
+                    with open(stt_path, "rb") as f:
+                        files = {"file": (os.path.basename(stt_path), f, mime_type)}
                         with httpx.Client(timeout=self.timeout_seconds) as client:
                             response = client.post(url, headers=headers, data=data, files=files)
                             response.raise_for_status()
                             res_json = response.json()
                             return self._parse_response(res_json)
-            except Exception as e:
-                last_error = e
-                logger.warning(f"STT request failed (attempt {attempt}/{self.max_retries}): {e}")
-                if attempt < self.max_retries:
-                    time.sleep(2**attempt)
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"STT request failed (attempt {attempt}/{self.max_retries}): {e}")
+                    if attempt < self.max_retries:
+                        time.sleep(2**attempt)
 
-        raise RuntimeError(f"STT API transcription failed after {self.max_retries} attempts: {last_error}")
+            raise RuntimeError(f"STT API transcription failed after {self.max_retries} attempts: {last_error}")
+        finally:
+            if is_temp and os.path.exists(stt_path):
+                try:
+                    os.unlink(stt_path)
+                except Exception:
+                    pass
 
     def _parse_response(self, data: dict) -> STTResult:
         full_text = data.get("text", "").strip()
@@ -140,38 +188,17 @@ class OpenAICompatibleSTTProvider(STTProvider):
             segments.append(
                 STTSegment(
                     id=int(seg.get("id", len(segments))),
-                    text=seg_text,
                     start_time=seg_start,
                     end_time=seg_end,
+                    text=seg_text,
                     words=seg_words,
                 )
             )
 
-        # If provider returned segments but no word list, synthesize coarse words from segments
-        if not words and segments:
-            for seg in segments:
-                tokens = seg.text.split()
-                if not tokens:
-                    continue
-                step = (seg.end_time - seg.start_time) / len(tokens)
-                for idx, token in enumerate(tokens):
-                    w_start = seg.start_time + idx * step
-                    w_end = w_start + step
-                    words.append(
-                        STTWord(
-                            word=token,
-                            start_time=w_start,
-                            end_time=w_end,
-                            confidence=0.8,
-                        )
-                    )
-
         return STTResult(
             text=full_text,
             language=language,
-            duration_seconds=duration,
-            segments=segments,
+            duration=duration,
             words=words,
-            provider="openai_compatible",
+            segments=segments,
         )
-
