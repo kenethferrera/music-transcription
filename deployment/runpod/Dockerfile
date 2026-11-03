@@ -1,9 +1,18 @@
 # ==============================================================================
-# RunPod Production GPU Pod Image
+# RunPod Production GPU Pod Image (Unified Frontend + Backend + GPU Inference)
 # Image: ghcr.io/<owner>/music-transcription/music-transcription-runpod:latest
-# Hardware: NVIDIA CUDA 12.4+ (RTX 4090, A40, RTX 3090)
+# Hardware: NVIDIA CUDA 12.4+ (RTX 4090, A40, RTX 3090, L4)
 # ==============================================================================
 
+# Stage 1: Build React Frontend SPA
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci || npm install
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: Production CUDA Runtime & Orchestration
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -76,6 +85,9 @@ COPY backend/ /app/backend/
 COPY workers/ /app/workers/
 COPY deployment/runpod/ /app/deployment/runpod/
 
+# Copy Built Frontend Web UI from Stage 1
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+
 # Set executable permissions on startup script
 RUN chmod +x /app/deployment/runpod/runpod_start.sh
 
@@ -85,7 +97,7 @@ ENV TORCH_HOME=/workspace/models/torch
 ENV MUSCRIPTOR_CACHE_DIR=/workspace/models/muscriptor
 ENV DEMUCS_CACHE=/workspace/models/demucs
 
-# Expose API port
+# Expose API & Web UI port
 EXPOSE 8000
 
 # Health Check verifying GPU status and API responsiveness
@@ -93,4 +105,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
 ENTRYPOINT ["/bin/bash", "/app/deployment/runpod/runpod_start.sh"]
-

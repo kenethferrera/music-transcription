@@ -35,12 +35,17 @@ app.include_router(health_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
 
-
-@app.get("/")
 def root():
     return {
         "service": "AI Music Transcription API",
         "docs": "/docs",
         "health": "/api/health",
     }
+
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
+if os.path.exists(frontend_dist):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+else:
+    app.get("/")(root)
 
