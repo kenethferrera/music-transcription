@@ -8,7 +8,7 @@ interface ExportViewProps {
 }
 
 interface ExportItem {
-  key: "midi" | "kar" | "musicxml" | "lead-musicxml" | "pdf" | "lead-pdf" | "lyrics-txt" | "lyrics-lrc";
+  key: "midi" | "kar" | "musicxml" | "lead-musicxml" | "pdf" | "lead-pdf" | "lyrics-txt" | "lyrics-lrc" | "lyrics-elrc";
   title: string;
   description: string;
   formatName: string;
@@ -34,20 +34,28 @@ const EXPORTS: ExportItem[] = [
     icon: Mic2,
   },
   {
+    key: "lyrics-elrc",
+    title: "Word-by-Word Lyrics (.elrc)",
+    description: "Enhanced LRC format with individual <mm:ss.xx> word-by-word timestamps used for KAR creation.",
+    formatName: ".elrc",
+    badge: "Word-Sync ELRC",
+    icon: Mic2,
+  },
+  {
+    key: "lyrics-lrc",
+    title: "Synchronized Lyrics (.lrc)",
+    description: "Standard timestamped LRC file with [mm:ss.xx] timings compatible with Spotify, VLC, and mobile players.",
+    formatName: ".lrc",
+    badge: "LRC Synced",
+    icon: Mic2,
+  },
+  {
     key: "lyrics-txt",
     title: "Lyrics Transcript (.txt)",
     description: "Full clean plain-text lyrics transcript recognized from the vocal stem via external STT.",
     formatName: ".txt",
     badge: "Lyrics TXT",
     icon: FileText,
-  },
-  {
-    key: "lyrics-lrc",
-    title: "Synchronized Lyrics (.lrc)",
-    description: "Timestamped LRC file with [mm:ss.xx] timings compatible with Spotify, VLC, and karaoke players.",
-    formatName: ".lrc",
-    badge: "LRC Synced",
-    icon: Mic2,
   },
   {
     key: "pdf",

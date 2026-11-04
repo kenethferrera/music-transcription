@@ -417,3 +417,57 @@ class ProjectJobOrchestrator:
                 content_type="text/plain; charset=utf-8",
             )
 
+        # 9. Word-by-Word Enhanced Synchronized Lyrics (.elrc)
+        elrc_lines = []
+        stt_words = getattr(stt_result, "words", []) if stt_result else []
+        if stt_words:
+            curr_words = []
+            line_start = 0.0
+            last_end = 0.0
+            for w in stt_words:
+                if not curr_words:
+                    line_start = w.start_time
+                elif (w.start_time - last_end > 1.2) or len(curr_words) >= 10:
+                    lm = int(line_start // 60)
+                    ls = line_start % 60
+                    word_tags = " ".join([f"<{int(item.start_time // 60):02d}:{item.start_time % 60:05.2f}>{item.word}" for item in curr_words])
+                    elrc_lines.append(f"[{lm:02d}:{ls:05.2f}] {word_tags}")
+                    curr_words = []
+                    line_start = w.start_time
+                curr_words.append(w)
+                last_end = w.end_time
+            if curr_words:
+                lm = int(line_start // 60)
+                ls = line_start % 60
+                word_tags = " ".join([f"<{int(item.start_time // 60):02d}:{item.start_time % 60:05.2f}>{item.word}" for item in curr_words])
+                elrc_lines.append(f"[{lm:02d}:{ls:05.2f}] {word_tags}")
+        elif arrangement.lyrics:
+            curr_sylls = []
+            line_start = 0.0
+            last_end = 0.0
+            for lyr in arrangement.lyrics:
+                if not curr_sylls:
+                    line_start = lyr.start_time
+                elif (lyr.start_time - last_end > 1.2) or len(curr_sylls) >= 12:
+                    lm = int(line_start // 60)
+                    ls = line_start % 60
+                    word_tags = "".join([f"<{int(item.start_time // 60):02d}:{item.start_time % 60:05.2f}>{item.text} " for item in curr_sylls]).strip()
+                    elrc_lines.append(f"[{lm:02d}:{ls:05.2f}] {word_tags}")
+                    curr_sylls = []
+                    line_start = lyr.start_time
+                curr_sylls.append(lyr)
+                last_end = lyr.end_time
+            if curr_sylls:
+                lm = int(line_start // 60)
+                ls = line_start % 60
+                word_tags = "".join([f"<{int(item.start_time // 60):02d}:{item.start_time % 60:05.2f}>{item.text} " for item in curr_sylls]).strip()
+                elrc_lines.append(f"[{lm:02d}:{ls:05.2f}] {word_tags}")
+
+        if elrc_lines:
+            elrc_bytes = "\n".join(elrc_lines).encode("utf-8")
+            self.storage.upload_bytes(
+                elrc_bytes,
+                f"exports/{self.project_id}/lyrics.elrc",
+                content_type="text/plain; charset=utf-8",
+            )
+

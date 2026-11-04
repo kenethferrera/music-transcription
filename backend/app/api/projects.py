@@ -274,6 +274,7 @@ def get_export_url(project_id: str, export_format: str):
         "lead-pdf": ("lead_sheet.pdf", "application/pdf"),
         "lyrics-txt": ("lyrics.txt", "text/plain"),
         "lyrics-lrc": ("lyrics.lrc", "text/plain"),
+        "lyrics-elrc": ("lyrics.elrc", "text/plain"),
     }
 
     if export_format not in format_map:

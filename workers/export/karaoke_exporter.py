@@ -49,14 +49,28 @@ class KaraokeExporter:
                 timed_events.append((note.start_time, "note_on", note.pitch, note.velocity))
                 timed_events.append((note.end_time, "note_off", note.pitch, 0))
 
-        # Interleave lyrics
+        # Interleave lyrics with natural phrasing and word/syllable spacing
+        last_lyric_end = 0.0
+        words_in_line = 0
         for idx, lyric in enumerate(arrangement.lyrics):
-            # Format text: prefix '/' on line beginnings or spaces for word breaks
             text = lyric.text
+            # Determine line break based on singing pauses or line length
+            pause_detected = (lyric.start_time - last_lyric_end) > 1.2
+            is_new_line = (idx == 0) or pause_detected or (words_in_line >= 9)
+
             if lyric.syllable_type in (SyllableType.SINGLE, SyllableType.BEGIN):
-                prefix = "/" if idx % 8 == 0 else " "
+                prefix = "/" if is_new_line else " "
                 text = prefix + text
+                if is_new_line:
+                    words_in_line = 1
+                else:
+                    words_in_line += 1
+            elif lyric.syllable_type in (SyllableType.MIDDLE, SyllableType.END):
+                # Continuation of word: no leading space
+                pass
+
             timed_events.append((lyric.start_time, "lyric", text, 0))
+            last_lyric_end = lyric.end_time
 
         timed_events.sort(key=lambda x: (x[0], 0 if x[1] == "note_off" else (1 if x[1] == "lyric" else 2)))
 

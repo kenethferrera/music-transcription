@@ -195,6 +195,20 @@ class OpenAICompatibleSTTProvider(STTProvider):
                 )
             )
 
+        # Refine word timings if degenerate or if provider only gave segment-level timestamps
+        for seg in segments:
+            swords = [w for w in words if seg.start_time - 0.05 <= w.start_time <= seg.end_time + 0.05]
+            if not swords:
+                continue
+            starts = [w.start_time for w in swords]
+            # If all words have the same start time or 0 duration, distribute evenly across segment
+            if len(set(starts)) <= 1 or any(w.end_time <= w.start_time for w in swords):
+                seg_dur = max(0.2, seg.end_time - seg.start_time)
+                step = seg_dur / len(swords)
+                for idx, w in enumerate(swords):
+                    w.start_time = round(seg.start_time + idx * step, 3)
+                    w.end_time = round(w.start_time + step, 3)
+
         return STTResult(
             text=full_text,
             language=language,

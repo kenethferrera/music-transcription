@@ -97,7 +97,7 @@ export async function getStemUrls(projectId: string): Promise<Record<string, str
 
 export async function getExportUrl(
   projectId: string,
-  format: "midi" | "kar" | "musicxml" | "lead-musicxml" | "pdf" | "lead-pdf" | "lyrics-txt" | "lyrics-lrc"
+  format: "midi" | "kar" | "musicxml" | "lead-musicxml" | "pdf" | "lead-pdf" | "lyrics-txt" | "lyrics-lrc" | "lyrics-elrc"
 ): Promise<{ download_url: string; filename: string }> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/export/${format}`);
   if (!res.ok) throw new Error(`Failed to fetch export URL: ${res.statusText}`);
