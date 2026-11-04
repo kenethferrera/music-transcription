@@ -199,7 +199,14 @@ class ProjectJobOrchestrator:
             except Exception as e:
                 logger.error(f"External STT transcription error: {e}. Falling back to instrumental lyrics.")
                 from backend.app.stt.base import STTResult
-                stt_result = STTResult(text="", language="en", duration=0.0, words=[], segments=[])
+                stt_result = STTResult(
+                    text="",
+                    language="en",
+                    duration_seconds=0.0,
+                    words=[],
+                    segments=[],
+                    provider="fallback",
+                )
 
             # 6. LYRIC_TO_NOTE_ALIGNMENT
             self._emit_progress(

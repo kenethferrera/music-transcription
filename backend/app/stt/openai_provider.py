@@ -198,7 +198,8 @@ class OpenAICompatibleSTTProvider(STTProvider):
         return STTResult(
             text=full_text,
             language=language,
-            duration=duration,
+            duration_seconds=duration,
             words=words,
             segments=segments,
+            provider="openai_compatible",
         )

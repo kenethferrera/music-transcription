@@ -23,12 +23,23 @@ class STTSegment(BaseModel):
 
 
 class STTResult(BaseModel):
-    text: str
+    text: str = ""
     language: Optional[str] = "en"
-    duration_seconds: float
+    duration_seconds: float = 0.0
     segments: List[STTSegment] = Field(default_factory=list)
     words: List[STTWord] = Field(default_factory=list)
-    provider: str
+    provider: str = "external_stt"
+
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        if isinstance(obj, dict) and "duration" in obj and "duration_seconds" not in obj:
+            obj["duration_seconds"] = obj["duration"]
+        return super().model_validate(obj, **kwargs)
+
+    def __init__(self, **data):
+        if "duration" in data and "duration_seconds" not in data:
+            data["duration_seconds"] = data.pop("duration")
+        super().__init__(**data)
 
 
 class STTProvider(ABC):
