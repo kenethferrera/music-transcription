@@ -8,7 +8,7 @@ interface ExportViewProps {
 }
 
 interface ExportItem {
-  key: "midi" | "kar" | "musicxml" | "lead-musicxml" | "pdf" | "lead-pdf";
+  key: "midi" | "kar" | "musicxml" | "lead-musicxml" | "pdf" | "lead-pdf" | "lyrics-txt" | "lyrics-lrc";
   title: string;
   description: string;
   formatName: string;
@@ -31,6 +31,22 @@ const EXPORTS: ExportItem[] = [
     description: "Standard Karaoke MIDI with syllable-synchronized lyric meta-events on vocal melody channel.",
     formatName: ".kar",
     badge: "Karaoke MIDI",
+    icon: Mic2,
+  },
+  {
+    key: "lyrics-txt",
+    title: "Lyrics Transcript (.txt)",
+    description: "Full clean plain-text lyrics transcript recognized from the vocal stem via external STT.",
+    formatName: ".txt",
+    badge: "Lyrics TXT",
+    icon: FileText,
+  },
+  {
+    key: "lyrics-lrc",
+    title: "Synchronized Lyrics (.lrc)",
+    description: "Timestamped LRC file with [mm:ss.xx] timings compatible with Spotify, VLC, and karaoke players.",
+    formatName: ".lrc",
+    badge: "LRC Synced",
     icon: Mic2,
   },
   {

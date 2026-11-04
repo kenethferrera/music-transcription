@@ -66,7 +66,9 @@ class KaraokeExporter:
             delta_ticks = int(round(mido.second2tick(delta_seconds, self.ticks_per_beat, tempo_val)))
 
             if ev_type == "lyric":
+                # Standard MIDI Karaoke meta-events (0x05 lyrics + 0x01 text for wide player support)
                 vocal_track.append(MetaMessage("lyrics", text=str(val), time=delta_ticks))
+                vocal_track.append(MetaMessage("text", text=str(val), time=0))
             elif ev_type in ("note_on", "note_off"):
                 vocal_track.append(Message(ev_type, channel=0, note=int(val), velocity=int(extra), time=delta_ticks))
 

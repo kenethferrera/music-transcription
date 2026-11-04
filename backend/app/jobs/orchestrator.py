@@ -273,7 +273,7 @@ class ProjectJobOrchestrator:
                 "Export Preparation",
                 "Generating Multitrack MIDI, Karaoke MIDI, and Sheet Music PDFs...",
             )
-            self._generate_default_exports(arrangement)
+            self._generate_default_exports(arrangement, stt_result=stt_result)
 
             # COMPLETE
             self._emit_progress(
@@ -304,7 +304,7 @@ class ProjectJobOrchestrator:
             # Clean up local scratch directory
             shutil.rmtree(self.scratch_dir, ignore_errors=True)
 
-    def _generate_default_exports(self, arrangement: Arrangement):
+    def _generate_default_exports(self, arrangement: Arrangement, stt_result: Optional[Any] = None):
         """Prepares default export artifacts and uploads them to object storage."""
         # 1. Multitrack MIDI (.mid)
         midi_exp = MidiExporter()
@@ -365,4 +365,55 @@ class ProjectJobOrchestrator:
             f"exports/{self.project_id}/lead_sheet.pdf",
             content_type="application/pdf",
         )
+
+        # 7. Plain Text Lyrics Transcript (.txt)
+        lyrics_text = ""
+        if stt_result and getattr(stt_result, "text", ""):
+            lyrics_text = stt_result.text.strip()
+        elif arrangement.lyrics:
+            lyrics_text = " ".join([l.text for l in arrangement.lyrics if l.text]).strip()
+
+        if lyrics_text:
+            self.storage.upload_bytes(
+                lyrics_text.encode("utf-8"),
+                f"exports/{self.project_id}/lyrics.txt",
+                content_type="text/plain; charset=utf-8",
+            )
+
+        # 8. Synchronized Lyrics (.lrc)
+        lrc_lines = []
+        if stt_result and getattr(stt_result, "segments", None):
+            for seg in stt_result.segments:
+                seg_text = getattr(seg, "text", "").strip()
+                if seg_text:
+                    m = int(seg.start_time // 60)
+                    s = seg.start_time % 60
+                    lrc_lines.append(f"[{m:02d}:{s:05.2f}] {seg_text}")
+        elif arrangement.lyrics:
+            current_words: List[str] = []
+            line_start = 0.0
+            last_end = 0.0
+            for lyr in arrangement.lyrics:
+                if not current_words:
+                    line_start = lyr.start_time
+                elif (lyr.start_time - last_end > 1.2) or len(current_words) >= 10:
+                    m = int(line_start // 60)
+                    s = line_start % 60
+                    lrc_lines.append(f"[{m:02d}:{s:05.2f}] {' '.join(current_words)}")
+                    current_words = []
+                    line_start = lyr.start_time
+                current_words.append(lyr.text)
+                last_end = lyr.end_time
+            if current_words:
+                m = int(line_start // 60)
+                s = line_start % 60
+                lrc_lines.append(f"[{m:02d}:{s:05.2f}] {' '.join(current_words)}")
+
+        if lrc_lines:
+            lrc_bytes = "\n".join(lrc_lines).encode("utf-8")
+            self.storage.upload_bytes(
+                lrc_bytes,
+                f"exports/{self.project_id}/lyrics.lrc",
+                content_type="text/plain; charset=utf-8",
+            )
 

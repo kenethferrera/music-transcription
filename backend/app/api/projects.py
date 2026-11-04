@@ -272,6 +272,8 @@ def get_export_url(project_id: str, export_format: str):
         "lead-musicxml": ("lead_sheet.musicxml", "application/vnd.recordare.musicxml+xml"),
         "pdf": ("full_score.pdf", "application/pdf"),
         "lead-pdf": ("lead_sheet.pdf", "application/pdf"),
+        "lyrics-txt": ("lyrics.txt", "text/plain"),
+        "lyrics-lrc": ("lyrics.lrc", "text/plain"),
     }
 
     if export_format not in format_map:
