@@ -18,7 +18,7 @@ import logging
 import os
 import shutil
 import tempfile
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import soundfile as sf
 try:
     import torch
